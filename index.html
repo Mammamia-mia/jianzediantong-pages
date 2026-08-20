@@ -1513,7 +1513,7 @@
     ];
     const indicatorLabels = Object.fromEntries([...indicatorOptions, ...archiveIndicatorOptions]);
     const fullIndicatorColumns = {
-      compositeMetric: ['全部\n门店', '营业\n门店', '汇总\n实际销售', '汇总累计\n完成率', '门店\n总销售', '门店累计\n完成率', 'POS\n销售', '团购\n销售', '新电商\n实际销售', '新电商\n本期占比', '新电商占比\n累计完成率', '本期\n进店客流', '本期\n进店率', '本期\n订单数', '本期\n成交率', '本期\n连带率', '本期\n客单价', '本期\n件单价', '本期\n折扣率'],
+      compositeMetric: ['全部\n门店', '营业\n门店', '汇总\n实际销售', '汇总累计\n完成率', '门店\n总销售', '门店累计\n完成率', 'POS\n销售', '团购\n销售', '新电商\n实际销售', '新电商\n本期占比', '新电商占比\n累计完成率', '新电商占比\n阶段完成率', '本期\n进店客流', '本期\n进店率', '本期\n订单数', '本期\n成交率', '本期\n连带率', '本期\n客单价', '本期\n件单价', '本期\n折扣率'],
       totalSalesAmount: ['全部\n门店', '营业\n门店', '汇总\n实际销售', '汇总累计\n目标销售', '汇总累计\n完成率', '汇总阶段\n目标销售', '汇总阶段\n完成率', '汇总\n规模上上期', '汇总\n规模上期', '汇总\n规模环比', '汇总\n规模同期', '汇总\n规模同比', '汇总\n同店本期', '汇总\n同店同期', '汇总\n同店同比'],
       totalStoreSales: ['全部\n门店', '营业\n门店', '门店\n总销售', '门店累计\n目标销售', '门店累计\n完成率', '门店阶段\n目标销售', '门店阶段\n完成率', '门店\n规模上上期', '门店\n规模上期', '门店\n规模环比', '门店\n规模同期', '门店\n规模同比', '门店\n同店本期', '门店\n同店同期', '门店\n同店同比'],
       businessAmount: ['全部\n门店', '营业\n门店', 'POS\n销售', 'POS销售\n规模上上期', 'POS销售\n规模上期', 'POS销售\n规模环比', 'POS销售\n规模同期', 'POS销售\n规模同比', 'POS销售\n同店本期', 'POS销售\n同店同期', 'POS销售\n同店同比'],
@@ -2294,11 +2294,10 @@
 
     function filterColumnsForPeriod(indicator, columns) {
       if (!periodSensitiveIndicators.has(indicator)) return columns;
-      const isEcommerceRatioIndicator = ['ecommerceSales', 'domainSales', 'instantRetailAmount'].includes(indicator);
+      const keepsAllRatioColumns = ['compositeMetric', 'ecommerceSales', 'domainSales', 'instantRetailAmount'].includes(indicator);
       return columns.filter(label => {
         const text = String(label).replace(/\s+/g, '');
-        if (isEcommerceRatioIndicator && text.includes('阶段')) return periodState.mode === 'year';
-        if (isEcommerceRatioIndicator && text.includes('累计')) return periodState.mode !== 'year';
+        if (keepsAllRatioColumns && text.includes('占比')) return true;
         if (periodState.mode === 'day' && text.includes('阶段')) return false;
         if (periodState.mode === 'year' && text.includes('累计')) return false;
         return true;
@@ -2502,6 +2501,19 @@
       const dimensionScale = { dept: 1, province: 0.72, city: 0.46, supervisor: 0.38, merchant: 0.62, store: 0.08 }[dimension] || 1;
       const baseSales = Math.max(3600, (100000 - index * 6500) * dimensionScale);
       const countScale = { dept: 1, province: 0.72, city: 0.46, supervisor: 0.32, merchant: 0.55, store: 0.01 }[dimension] || 1;
+      const isRatioSalesIndicator = ['ecommerceSales', 'domainSales', 'instantRetailAmount'].includes(indicator);
+      const isCumulativeRatioField = text.includes('占比累计');
+      const isStageRatioField = text.includes('占比阶段');
+
+      if (indicator === 'compositeMetric' && text === '新电商占比累计完成率') {
+        return periodState.mode === 'year' ? '-' : formatSamplePercent(80.0 - index * 1.45);
+      }
+      if (indicator === 'compositeMetric' && text === '新电商占比阶段完成率') {
+        return periodState.mode === 'year' ? formatSamplePercent(83.0 - index * 1.35) : '-';
+      }
+      if (isRatioSalesIndicator && ((periodState.mode === 'year' && isCumulativeRatioField) || (periodState.mode !== 'year' && isStageRatioField))) {
+        return '-';
+      }
 
       if (text === '全部门店') return formatSampleInteger(dimension === 'store' ? 1 : Math.max(3, (218 - index * 9) * countScale));
       if (text === '营业门店') return formatSampleInteger(dimension === 'store' ? 1 : Math.max(2, (205 - index * 8) * countScale));
@@ -2510,14 +2522,16 @@
       if (text.includes('同店同比')) return formatSamplePercent(10.8 - index * 0.92, true);
       if (text.includes('占比差异') || text.includes('区域差异') || text.includes('全国差异')) return formatSamplePercent(2.8 - index * 0.42, true);
       if (text.includes('占比') && text.includes('目标')) {
-        if (text.includes('商城')) return formatSamplePercent((12.0 - index * 0.3) * periodScale);
-        if (text.includes('即时零售')) return formatSamplePercent((6.0 - index * 0.18) * periodScale);
-        return formatSamplePercent((15.0 - index * 0.36) * periodScale);
+        const stageMultiplier = isStageRatioField ? 0.62 : 1;
+        if (text.includes('商城')) return formatSamplePercent((12.0 - index * 0.3) * periodScale * stageMultiplier);
+        if (text.includes('即时零售')) return formatSamplePercent((6.0 - index * 0.18) * periodScale * stageMultiplier);
+        return formatSamplePercent((15.0 - index * 0.36) * periodScale * stageMultiplier);
       }
       if (text.includes('占比') && text.includes('完成率')) {
-        if (text.includes('商城')) return formatSamplePercent(67.5 - index * 1.2);
-        if (text.includes('即时零售')) return formatSamplePercent(65.0 - index * 1.05);
-        return formatSamplePercent(80.0 - index * 1.45);
+        const stageBonus = isStageRatioField ? 3.0 : 0;
+        if (text.includes('商城')) return formatSamplePercent(67.5 - index * 1.2 + stageBonus);
+        if (text.includes('即时零售')) return formatSamplePercent(65.0 - index * 1.05 + stageBonus);
+        return formatSamplePercent(80.0 - index * 1.45 + stageBonus);
       }
       if (text.includes('完成率')) return formatSamplePercent(92.6 - index * 1.35);
       if (text.includes('本期占比')) {
